@@ -1,0 +1,12 @@
+datasets
+tqdm
+joblib
+numpy
+matplotlib
+anthropic
+google-generativeai
+huggingface-hub
+mistralai
+openai
+requests
+together
