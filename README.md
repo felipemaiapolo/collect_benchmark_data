@@ -36,7 +36,6 @@ Model and judge calls rely on API keys defined in `utils.py`. Populate the follo
 - `TOGETHER_API_KEY`
 - `MISTRAL_API_KEY`
 - `HF_TOKEN`
-- `RITS_API_KEY`
 
 Each key feeds the corresponding provider block in `QueryModel` (e.g., OpenAI, Anthropic, Google Gemini, Mistral, TogetherAI, Hugging Face Inference Endpoints, and RITS). The judge model defaults to `gpt-4o-mini-2024-07-18` inside `QueryJudgeError`.
 
