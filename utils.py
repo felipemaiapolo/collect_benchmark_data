@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import gzip
 import os
@@ -14,6 +16,7 @@ import openai
 from openai import OpenAI
 import requests
 from together import Together
+
 
 MODELS = {'openai': ['o1-preview-2024-09-12',
                      'gpt-4o-mini-2024-07-18',
