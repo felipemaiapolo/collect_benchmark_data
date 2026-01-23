@@ -4,7 +4,7 @@ import time
 import numpy as np
 from utils import QueryModelError, QueryJudgeError, GetJudgePrompt, SaveJson, LoadJson
 
-def run(benchmark, model, n = 200):
+def run(benchmark, model, reps = 2, n = 100):
     if benchmark=='ifeval':
         from ifeval.utils import process_results
         bench_data = load_dataset("google/IFEval")['train']
@@ -62,92 +62,93 @@ def run(benchmark, model, n = 200):
     ids = [int(x) for x in ids if int(x) <= m-1]
 
     for id in tqdm(ids):
-        
-        model_name = model.replace("/",".").replace("_",".")
-        bench_name = benchmark.replace("/",".").replace("_",".")
-        file_path = f"results/{bench_name}/{model_name}/{bench_name}_{model_name}_{id}.json"
-
-        try:
-            output = LoadJson(file_path)
-            prompt = output['prompt']
-            gold_response = output['gold_response']
-            doc = output['doc']
-
-            if output['model_response'] == "NA": #getting model resp if NA
+        for rep in range(reps):
+            model_name = model.replace("/",".").replace("_",".")
+            bench_name = benchmark.replace("/",".").replace("_",".")
+            file_path = f"results/{bench_name}/{model_name}/{bench_name}_{model_name}_{id}_{rep}.json"
+    
+            try:
+                output = LoadJson(file_path)
+                prompt = output['prompt']
+                gold_response = output['gold_response']
+                doc = output['doc']
+    
+                if output['model_response'] == "NA": #getting model resp if NA
+                    model_response = QueryModelError(prompt, model)
+                    output['model_response'] = model_response
+                    SaveJson(output,file_path) #we just re-save if changes are made
+                else:
+                    model_response = output['model_response']
+                if model_response != "NA":
+                    if output['scores'] == "NA": #getting scores if NA
+                        if benchmark=='ifeval':
+                            scores = process_results(doc, [model_response])
+                            judge_prompt="NA"
+                        else:
+                            judge_prompt=GetJudgePrompt(prompt, model_response, gold_response)
+                            scores = QueryJudgeError(judge_prompt)
+                        output['scores'] = scores
+                        output['judge_prompt'] = judge_prompt
+                        SaveJson(output,file_path) #we just re-save if changes are made
+            except:    
+                ### Getting prompt, gold resp, subject, and id bench
+                doc = bench_data[id]
+                if benchmark=='ifeval':
+                    prompt = doc['prompt']
+                    gold_response = ''
+                    subject = 'ifeval'
+                    id_bench = doc['key']
+                elif benchmark=='math':
+                    prompt = doc_to_text(doc)
+                    gold_response = doc['solution']
+                    subject = doc['type']+"_"+doc['level'].replace(" ","-")
+                    id_bench = ''
+                elif benchmark=='musr':
+                    prompt = doc_to_text(doc)
+                    gold_response = doc['answer_choice']
+                    subject = doc['subject']
+                    id_bench = ''
+                elif benchmark=='gpqa':
+                    prompt = doc_to_text(doc)
+                    gold_response = doc['answer']
+                    subject = 'main'
+                    id_bench = ''
+                elif benchmark=='bbh':
+                    prompt = doc_to_text(doc)
+                    gold_response = doc['target']
+                    subject = doc['subject']
+                    id_bench = ''
+                elif benchmark=='mmlu-pro':
+                    prompt = doc_to_text(doc)
+                    gold_response = doc['answer']
+                    subject = doc['category']
+                    id_bench = doc['question_id']
+                    
+                ### Prompting model and evaluating
                 model_response = QueryModelError(prompt, model)
-                output['model_response'] = model_response
-                SaveJson(output,file_path) #we just re-save if changes are made
-            else:
-                model_response = output['model_response']
-            if model_response != "NA":
-                if output['scores'] == "NA": #getting scores if NA
+                if model_response == "NA":
+                    scores = "NA"
+                    judge_prompt = "NA"
+                else:
                     if benchmark=='ifeval':
                         scores = process_results(doc, [model_response])
                         judge_prompt="NA"
                     else:
                         judge_prompt=GetJudgePrompt(prompt, model_response, gold_response)
                         scores = QueryJudgeError(judge_prompt)
-                    output['scores'] = scores
-                    output['judge_prompt'] = judge_prompt
-                    SaveJson(output,file_path) #we just re-save if changes are made
-        except:    
-            ### Getting prompt, gold resp, subject, and id bench
-            doc = bench_data[id]
-            if benchmark=='ifeval':
-                prompt = doc['prompt']
-                gold_response = ''
-                subject = 'ifeval'
-                id_bench = doc['key']
-            elif benchmark=='math':
-                prompt = doc_to_text(doc)
-                gold_response = doc['solution']
-                subject = doc['type']+"_"+doc['level'].replace(" ","-")
-                id_bench = ''
-            elif benchmark=='musr':
-                prompt = doc_to_text(doc)
-                gold_response = doc['answer_choice']
-                subject = doc['subject']
-                id_bench = ''
-            elif benchmark=='gpqa':
-                prompt = doc_to_text(doc)
-                gold_response = doc['answer']
-                subject = 'main'
-                id_bench = ''
-            elif benchmark=='bbh':
-                prompt = doc_to_text(doc)
-                gold_response = doc['target']
-                subject = doc['subject']
-                id_bench = ''
-            elif benchmark=='mmlu-pro':
-                prompt = doc_to_text(doc)
-                gold_response = doc['answer']
-                subject = doc['category']
-                id_bench = doc['question_id']
+                        
+                ### Output
+                output={'model':model,
+                        'benchmark':benchmark,
+                        'id':id,
+                        'rep':rep,
+                        'id_bench':id_bench,
+                        'prompt':prompt,
+                        'model_response':model_response,
+                        'gold_response':gold_response,
+                        'subject':subject,
+                        'scores':scores,
+                        'judge_prompt':judge_prompt,
+                        'doc':doc}
                 
-            ### Prompting model and evaluating
-            model_response = QueryModelError(prompt, model)
-            if model_response == "NA":
-                scores = "NA"
-                judge_prompt = "NA"
-            else:
-                if benchmark=='ifeval':
-                    scores = process_results(doc, [model_response])
-                    judge_prompt="NA"
-                else:
-                    judge_prompt=GetJudgePrompt(prompt, model_response, gold_response)
-                    scores = QueryJudgeError(judge_prompt)
-                    
-            ### Output
-            output={'model':model,
-                    'benchmark':benchmark,
-                    'id':id,
-                    'id_bench':id_bench,
-                    'prompt':prompt,
-                    'model_response':model_response,
-                    'gold_response':gold_response,
-                    'subject':subject,
-                    'scores':scores,
-                    'judge_prompt':judge_prompt,
-                    'doc':doc}
-            
-            SaveJson(output,file_path)
+                SaveJson(output,file_path)
