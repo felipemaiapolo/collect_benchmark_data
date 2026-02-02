@@ -17,35 +17,81 @@ from openai import OpenAI
 import requests
 from together import Together
 
+from config import (
+    MODEL_CONFIGS, MODEL_API_NAMES, QWEN3_MODELS, HF_ENDPOINTS, BATCH_MODELS,
+    JUDGE_CONFIG, OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
+    TOGETHER_API_KEY, MISTRAL_API_KEY, HF_TOKEN, RITS_API_KEY, OPENROUTER_API_KEY
+)
 
-MODELS = {'openai': ['o1-preview-2024-09-12',
-                     'gpt-4o-mini-2024-07-18',
-                     'gpt-4o-2024-05-13'],
-         'anthropic': ['claude-3-5-sonnet-20241022'],
-         'google':['gemini-1.5-pro-002',
-                   'gemini-1.5-flash-002',
-                   'gemini-1.5-flash-8b-001'],
-         'mistral':["mistral-large-2407",
-                    "mistral-small-2409"],
-         'togetherai':["meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-                       "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
-                       "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                       'google/gemma-2-27b-it'],
-         'hf':['Qwen/Qwen2.5-72B-Instruct',
-               'Qwen/Qwen2.5-32B-Instruct',
-               'Qwen/Qwen2.5-7B-Instruct',
-               'google/gemma-2-9b-it',
-               'google/gemma-2-2b-it'],
-         'rits':["ibm-granite/granite-3.0-8b-instruct"],
-         'local':['ibm-granite/granite-3.0-2b-instruct']}
 
-OPENAI_API_KEY=''
-ANTHROPIC_API_KEY=''
-GEMINI_API_KEY=''
-TOGETHER_API_KEY=''
-MISTRAL_API_KEY =''
-HF_TOKEN=''
-RITS_API_KEY=''
+MODELS = {
+    'openai': [
+        'gpt-3.5-turbo-1106',
+        'gpt-4-0613',
+        'gpt-4o-2024-11-20',
+        'gpt-4o-mini-2024-07-18',
+        'gpt-5-2025-08-07',
+        'gpt-5-mini-2025-08-07',
+        'gpt-5-nano-2025-08-07',
+        'gpt-5-2025-08-07-thinking',
+        'o3-2025-04-16',
+        'o4-mini-2025-04-16',
+    ],
+    'anthropic': [
+        'claude-3-haiku-20240307',
+        'claude-3-5-haiku-20241022',
+        'claude-opus-4-1-20250805',
+        'claude-3-7-sonnet-20250219',
+        'claude-sonnet-4-20250514',
+    ],
+    'google': [
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+        'gemini-2.5-pro',
+        'gemma-3-1b-it',
+    ],
+    'mistral': [
+        "mistral-medium-2505",
+    ],
+    'togetherai': [
+        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        'google/gemma-2-27b-it',
+    ],
+    'hf': [
+        'deepseek-ai/DeepSeek-R1',
+        'deepseek-ai/DeepSeek-V3',
+        'openai/gpt-oss-20b',
+        'openai/gpt-oss-120b',
+        'meta-llama/Llama-3.1-8B-Instruct',
+        'meta-llama/Llama-3.1-70B-Instruct',
+        #'Qwen/Qwen2-7B-Instruct',
+        #'Qwen/Qwen2-72B-Instruct',
+        'Qwen/Qwen3-32B',
+        'Qwen/Qwen3-14B',
+        'Qwen/QwQ-32B',
+    ],
+    'openrouter': [
+        'meta-llama/Llama-3.1-405B-Instruct',
+         'meta-llama/llama-4-scout',
+         'meta-llama/llama-4-maverick',
+         #'qwen/qwq-32b',
+         'Qwen/Qwen3-235B-A22B-Instruct-2507',
+    ],
+    'rits': [
+        "ibm-granite/granite-3.0-8b-instruct",
+    ],
+    'local': [
+        'ibm-granite/granite-3.0-2b-instruct',
+    ],
+    'hf_endpoint': []
+}
+
+# Populate HF endpoint models
+for endpoint_name, endpoint_config in HF_ENDPOINTS.items():
+    MODELS['hf_endpoint'].extend(endpoint_config['models'])
+
 
 class ModelLookupError(ValueError):
     """Raised when a model is missing or ambiguous."""
@@ -83,6 +129,65 @@ def GetAPI(model_name: str, catalog: Dict[str, List[str]] = MODELS) -> str:
     raise ModelLookupError(
         f"Model '{model_name}' appears in more than one provider: {matches}"
     )
+
+
+def GetAPIModelName(model: str) -> str:
+    """
+    Get the actual API model name from internal model name.
+    
+    For models with date suffixes or special variants (e.g., 'gpt-5-2025-08-07-thinking'),
+    this returns the actual model name to use in API calls (e.g., 'gpt-5').
+    
+    Parameters
+    ----------
+    model : str
+        Internal model name used in your scripts
+    
+    Returns
+    -------
+    str
+        Actual model name to use in API calls
+    """
+    return MODEL_API_NAMES.get(model, model)
+
+
+def GetHFEndpoint(model_name: str) -> Dict[str, str]:
+    """Get HuggingFace endpoint configuration for a model"""
+    for endpoint_name, endpoint_config in HF_ENDPOINTS.items():
+        if model_name in endpoint_config['models']:
+            return {
+                'url': endpoint_config['url'],
+                'api_key': endpoint_config['api_key']
+            }
+    raise ValueError(f"Model {model_name} not found in HF_ENDPOINTS")
+
+
+def ApplyPromptModifications(prompt: str, model: str) -> str:
+    """Apply model-specific prompt modifications"""
+    # Add suffix for Qwen 3 models
+    if model in QWEN3_MODELS:
+        prompt = prompt + "\n/set nothink"
+    
+    return prompt
+
+
+def GetModelConfig(model: str) -> Dict[str, Any]:
+    """Get configuration parameters for a specific model"""
+    return MODEL_CONFIGS.get(model, {}).copy()
+
+
+def GetJudgeConfig() -> Dict[str, Any]:
+    """Get configuration for judge model"""
+    return JUDGE_CONFIG.copy()
+
+
+def IsBatchModel(model: str) -> tuple[bool, str]:
+    """Check if model supports batch API and return provider"""
+    for provider, models in BATCH_MODELS.items():
+        if model in models:
+            return True, provider
+    return False, None
+
 
 def SaveJson(
     data: Dict[str, Any],
@@ -123,6 +228,7 @@ def LoadJson(path: Union[str, Path]) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
     
+
 def SaveJsonl(
     data: Iterable[Mapping],
     path: str | Path,
@@ -165,6 +271,7 @@ def SaveJsonl(
             json.dump(obj, f, ensure_ascii=ensure_ascii)
             f.write("\n")
 
+
 JsonDict = Mapping[str, Any]
 def LoadJsonl(
     path: Union[str, Path],
@@ -182,9 +289,9 @@ def LoadJsonl(
         File to read.  If ``compress`` is *None*, a ``.gz`` suffix is taken
         to mean gzip compression.
     compress
-        • True  – force gzip mode  
-        • False – force plain-text mode  
-        • None  – infer from file name (default)
+        • True  — force gzip mode  
+        • False — force plain-text mode  
+        • None  — infer from file name (default)
     discard_blank
         Ignore empty / whitespace-only lines instead of raising an error.
     skip_invalid
@@ -215,225 +322,358 @@ def LoadJsonl(
                 raise ValueError(f"Invalid JSON on line {lineno}: {e}") from e
 
     return records
-    
 
 
 def QueryModel(prompt, model):
+    """Query a model with automatic configuration and prompt modifications"""
+    
+    # Apply prompt modifications (e.g., Qwen suffix)
+    prompt = ApplyPromptModifications(prompt, model)
+    
+    # Get model configuration
+    model_config = GetModelConfig(model)
+    
+    # Get actual API model name
+    api_model_name = GetAPIModelName(model)
+    
     api = GetAPI(model)
 
     if api == 'openai':
-        client = OpenAI(api_key=OPENAI_API_KEY)  # the key is picked up automatically
-
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        
         response = client.chat.completions.create(
-            model = model,     # pick any model you have access to
-            messages=[
-                {"role": "user",   "content": prompt}
-            ]                  
+            model=api_model_name,
+            messages=[{"role": "user", "content": prompt}],
+            **model_config
         )
         resp = response.choices[0].message.content
 
-    elif api=='google':
+    elif api == 'google':
         genai.configure(api_key=GEMINI_API_KEY)
-        generation_config = {
-            "temperature": 1.0,
-            "top_p": 1,
-            "top_k": 1
-        }
         
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS", "threshold": "BLOCK_NONE"}
-        ]
+        # Extract generation config from model_config
+        generation_config = {}
+        safety_settings = model_config.pop('safety_settings', [])
+        
+        # Add other generation parameters
+        if 'temperature' in model_config:
+            generation_config['temperature'] = model_config['temperature']
+        if 'top_p' in model_config:
+            generation_config['top_p'] = model_config['top_p']
+        if 'max_output_tokens' in model_config:
+            generation_config['max_output_tokens'] = model_config['max_output_tokens']
 
-        model = genai.GenerativeModel(
-            model_name=model,
+        model_instance = genai.GenerativeModel(
+            model_name=api_model_name,
             generation_config=generation_config,
             safety_settings=safety_settings
         )
     
-        # Generate response
-        response = model.generate_content(prompt)
-        resp = response.text.strip()
+        response = model_instance.generate_content(prompt)
+        try:
+            resp = response.text.strip()
+        except ValueError as e:
+            # Response was blocked by safety filters
+            print(f"  ⚠️  Gemini blocked response for {model}: {str(e)[:100]}")
+            
+            # Log details about why it was blocked
+            if hasattr(response, 'prompt_feedback'):
+                print(f"  ⚠️  Prompt feedback: {response.prompt_feedback}")
+            
+            if response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'safety_ratings'):
+                    blocked_categories = [
+                        rating.category.name 
+                        for rating in candidate.safety_ratings 
+                        if rating.probability.name in ['HIGH', 'MEDIUM']
+                    ]
+                    if blocked_categories:
+                        print(f"  ⚠️  Blocked categories: {blocked_categories}")
+                if hasattr(candidate, 'finish_reason'):
+                    print(f"  ⚠️  Finish reason: {candidate.finish_reason}")
+            
+            # Return marker for blocked content
+            resp = "[BLOCKED_BY_SAFETY_FILTER]"
 
-    elif api=='mistral':
-        api_key = MISTRAL_API_KEY
-        client = Mistral(api_key=api_key)
-        messages = [
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ]
+    elif api == 'mistral':
+        client = Mistral(api_key=MISTRAL_API_KEY)
+        messages = [{"role": "user", "content": prompt}]
+        
         chat_response = client.chat.complete(
-            model=model,
+            model=api_model_name,
             messages=messages,
+            **model_config
         )
         resp = chat_response.choices[0].message.content
         
-    elif api=='anthropic':
+    elif api == 'anthropic':
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        
+        # Anthropic requires messages in the config
+        messages = [{"role": "user", "content": prompt}]
+        
         message = client.messages.create(
-                            model=model,
-                            max_tokens=3000,
-                            messages=[
-                                {"role": "user", "content": prompt}
-                            ]
-                        )
+            model=api_model_name,
+            messages=messages,
+            **model_config
+        )
         resp = message.content[0].text
 
-    elif api=='togetherai':
+    elif api == 'togetherai':
         client = Together(api_key=TOGETHER_API_KEY)
+        
+        # Extract stop sequences if present
+        stop_sequences = model_config.pop('stop', ["<|eot_id|>", "<|eom_id|>"])
 
         stream = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
-                top_p=0.7,
-                top_k=50,
-                repetition_penalty=1,
-                stop=["<|eot_id|>", "<|eom_id|>"],
-                stream=True
+            model=api_model_name,
+            messages=[{"role": "user", "content": prompt}],
+            stop=stop_sequences,
+            stream=True,
+            **model_config
         )
 
-        # Concatenate the streamed response content
         answer = ""
         for chunk in stream:
-            # Safely extract the content from each streamed chunk
             answer += chunk.choices[0].delta.content or ""
         
-        # Replace "Yes" with the generated answer in the specific column
         resp = answer.strip()
 
-    elif api=='hf':
-        model_dict = {"Qwen/Qwen2.5-7B-Instruct":"together",
-                "Qwen/Qwen2.5-72B-Instruct":"hyperbolic",
-                "Qwen/Qwen2.5-32B-Instruct":"featherless-ai",
-                "google/gemma-2-2b-it":"nebius",
-                "google/gemma-2-9b-it":"nebius"}
+    elif api == 'hf':
+        # Models that use HF router (OpenAI-compatible endpoint)
+        hf_router_models = {
+            'deepseek-ai/DeepSeek-R1',
+            'deepseek-ai/DeepSeek-V3',
+            'openai/gpt-oss-20b',
+            'openai/gpt-oss-120b',
+            'meta-llama/Llama-3.1-8B-Instruct',
+            'meta-llama/Llama-3.1-70B-Instruct',
+            #'Qwen/Qwen2-7B-Instruct',
+            #'Qwen/Qwen2-72B-Instruct',
+            'Qwen/Qwen3-32B',
+            'Qwen/Qwen3-14B',
+            'Qwen/QwQ-32B',
+        }
+        
+        # Check if this model uses HF router
+        if model in hf_router_models:
+            # Use OpenAI-compatible HF router
+            client = OpenAI(
+                base_url="https://router.huggingface.co/v1",
+                api_key=HF_TOKEN,
+            )
+            
+            response = client.chat.completions.create(
+                model=api_model_name,
+                messages=[{"role": "user", "content": prompt}],
+                **model_config
+            )
+            resp = response.choices[0].message.content
+        
+        else:
+            # Existing InferenceClient logic for old models
+            model_dict = {
+                "Qwen/Qwen2.5-7B-Instruct": "together",
+                "Qwen/Qwen2.5-72B-Instruct": "hyperbolic",
+                "Qwen/Qwen2.5-32B-Instruct": "featherless-ai",
+                "google/gemma-2-2b-it": "nebius",
+                "google/gemma-2-9b-it": "nebius"
+            }
+            
+            provider = model_dict.get(model)
+            if provider:
+                client = InferenceClient(provider=provider, api_key=HF_TOKEN)
+            else:
+                client = InferenceClient(api_key=HF_TOKEN)
 
-        provider = model_dict[model]
+            if model in ["Qwen/Qwen2.5-7B-Instruct", "Qwen/Qwen2.5-32B-Instruct"]:
+                completion = client.chat.completions.create(
+                    model=api_model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    **model_config
+                )
+                resp = completion.choices[0].message.content
 
-        client = InferenceClient(
-            provider=provider,
-            api_key=HF_TOKEN,
+            elif model in ["Qwen/Qwen2.5-72B-Instruct"]:
+                # Remove streaming-incompatible params
+                stream_config = {k: v for k, v in model_config.items() if k in ['temperature', 'top_p']}
+                
+                completion = client.chat.completions.create(
+                    model=api_model_name,
+                    stream=True,
+                    messages=[{"role": "user", "content": prompt}],
+                    **stream_config
+                )
+                resp = ""
+                for chunk in completion:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        resp += content
+
+            elif model in ["google/gemma-2-2b-it"]:
+                completion = client.chat.completions.create(
+                    model=api_model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    **model_config
+                )
+                resp = completion.choices[0].message.content
+
+            elif model in ["google/gemma-2-9b-it"]:
+                # Extract stop sequences
+                stop_sequences = model_config.pop('stop', ["<|eot_id|>", "<|eom_id|>"])
+                stream_config = {k: v for k, v in model_config.items() if k in ['temperature', 'top_p']}
+                
+                completion = client.chat.completions.create(
+                    model=api_model_name,
+                    stop=stop_sequences,
+                    stream=True,
+                    messages=[{"role": "user", "content": prompt}],
+                    **stream_config
+                )
+                resp = ""
+                for chunk in completion:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        resp += content
+            else:
+                raise ValueError(f"Unknown HF model: {model}")
+            
+    elif api == 'hf_endpoint':
+        # Use custom HuggingFace endpoint
+        endpoint_config = GetHFEndpoint(model)
+        
+        client = OpenAI(
+            base_url=endpoint_config['url'],
+            api_key=endpoint_config['api_key']
+        )
+        base_models = ['ibm-granite/granite-3.3-8b-base', 'ibm-granite/granite-3.3-2b-base']
+        if model in base_models:
+            # Use completions API for base models
+            response = client.completions.create(
+                model=api_model_name,
+                prompt=prompt
+                # max_tokens=model_config.get('max_tokens', 2048),
+                # temperature=model_config.get('temperature', 0.7),
+                # stream=False
+            )
+            resp = response.choices[0].text.strip()
+        else:
+            response = client.chat.completions.create(
+                model=api_model_name,  # HF endpoints typically use "tgi" as model name
+                messages=[{"role": "user", "content": prompt}],
+                **model_config
+                )
+            resp = response.choices[0].message.content
+        
+        # response = client.chat.completions.create(
+        #     model=api_model_name,  # HF endpoints typically use "tgi" as model name
+        #     messages=[{"role": "user", "content": prompt}],
+        #     **model_config
+        # )
+        # resp = response.choices[0].message.content
+
+    elif api == 'openrouter':
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+        )
+        
+        response = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "https://github.com/your-username/your-repo",  # Optional
+                "X-Title": "AI Benchmark Research",  # Optional
+            },
+            model=api_model_name,
+            messages=[{"role": "user", "content": prompt}],
+            **model_config
+        )
+        resp = response.choices[0].message.content 
+           
+    elif api == 'rits':
+        RITS_ENVS = { 
+            "ibm-granite/granite-3.0-8b-instruct": "https://inference-3scale-apicast-production.apps.rits.fmaas.res.ibm.com/granite-3-0-8b-instruct/v1"
+        }
+        client = OpenAI(
+            api_key=RITS_API_KEY,  
+            base_url=RITS_ENVS[model],
+            default_headers={'RITS_API_KEY': RITS_API_KEY}
         )
 
-        if model in ["Qwen/Qwen2.5-7B-Instruct","Qwen/Qwen2.5-32B-Instruct"]:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user","content": prompt}],
-            )
-            resp = completion.choices[0].message.content
+        messages = [{"role": "user", "content": prompt}]
 
-        elif model in ["Qwen/Qwen2.5-72B-Instruct"]:
-            completion = client.chat.completions.create(
-                temperature=0.7,
-                top_p=0.9,
-                model=model,
-                stream=True,
-                messages=[{"role": "user","content": prompt}],
-            )
-            resp = ""
-            for chunk in completion:
-                content = chunk.choices[0].delta.content  # Get the current content
-                resp += content  # Append to the full response
-
-        elif model in ["google/gemma-2-2b-it"]:
-            completion = client.chat.completions.create(
-                temperature=0.7,
-                top_p=0.9,
-                model=model,
-                messages=[{"role": "user","content": prompt}],
-            )
-            resp = completion.choices[0].message.content
-
-        elif model in ["google/gemma-2-9b-it"]:
-            completion = client.chat.completions.create(
-                temperature=0.7,
-                top_p=0.7,
-                #top_k=50,
-                #repetition_penalty=1,
-                model=model,
-                stop=["<|eot_id|>", "<|eom_id|>"],
-                stream=True,
-                messages=[{"role": "user","content": prompt}],
-            )
-            resp = ""
-            for chunk in completion:
-                content = chunk.choices[0].delta.content  # Get the current content
-                resp += content  # Append to the full response
-        else:
-            raise()
-    elif api=='rits':
-        RITS_ENVS = { 
-            "ibm-granite/granite-3.0-8b-instruct":"https://inference-3scale-apicast-production.apps.rits.fmaas.res.ibm.com/granite-3-0-8b-instruct/v1"
-            }
-        client = OpenAI(
-                    api_key=RITS_API_KEY,  
-                    base_url=RITS_ENVS[model],
-                    default_headers={'RITS_API_KEY': RITS_API_KEY}
-                )
-
-        messages = [
-                    {"role": "user", "content": prompt}
-                ]
-
-        # Make the API call using the provided model and messages.
         completion = client.chat.completions.create(
-            model=model,
+            model=api_model_name,
             messages=messages,
-            temperature=0.7,
-            top_p=0.9,
-            n=1
+            **model_config
         )
 
         resp = completion.choices[0].message.content.strip()
     else:
-        raise()
+        raise ValueError(f"Unknown API: {api}")
         
     return resp
-    
+
+
 def QueryModelError(prompt, model, max_tries=10):
+    """Query model with retry logic"""
     success = False
     tries = 0
     while not success:
-        if tries==max_tries-1:
+        if tries == max_tries - 1:
             return "NA"
         try:
             resp = QueryModel(prompt, model)
             success = True
-        except:
+        except Exception as e:
+            print(f"Error querying {model}: {e}")
             time.sleep(5)
-            tries+=1
+            tries += 1
     return resp
 
+
 def QueryJudgeError(prompt, max_tries=10):
-    JUDGE_MODEL = 'gpt-4o-mini-2024-07-18'
+    """Query judge model with retry logic and timeout handling"""
+    judge_config = GetJudgeConfig()
+    judge_model = judge_config.pop('model')
+    
     success = False
     tries = 0
     while not success:
-        if tries==max_tries:
+        if tries == max_tries:
+            print(f"  ⚠️  Judge model failed after {max_tries} attempts, returning NA")
             return "NA"
         try:
-            client = OpenAI(api_key=OPENAI_API_KEY)  
+            client = OpenAI(api_key=OPENAI_API_KEY)
             response = client.chat.completions.create(
-                model = JUDGE_MODEL,     # pick any model you have access to
-                temperature = 0,
-                messages=[
-                    {"role": "user",   "content": prompt}
-                ]                  
+                model=judge_model,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=60.0,  # Add explicit 60 second timeout
+                **judge_config
             )
             resp = response.choices[0].message.content
             success = True
-        except:
-            time.sleep(5)
-            tries+=1
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"  ⚠️  Error querying judge model (attempt {tries+1}/{max_tries}): {e}")
+            
+            # Different wait times for different errors
+            if "timeout" in error_msg:
+                wait_time = 10  # Wait 10 seconds for timeout
+            elif "rate" in error_msg or "limit" in error_msg:
+                wait_time = 30  # Wait 30 seconds for rate limits
+            else:
+                wait_time = 5  # Wait 5 seconds for other errors
+            
+            print(f"  ⏳ Waiting {wait_time} seconds before retry...")
+            time.sleep(wait_time)
+            tries += 1
+    
     return resp
 
+
 def GetJudgePrompt(prompt, model_response, gold_response):
+    """Generate judge prompt for evaluation"""
     MODELTASK = prompt
     MODELRESPONSE = model_response
     GOLDENRESPONSE = gold_response
